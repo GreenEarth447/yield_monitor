@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Yield Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1220;
+    --panel: #121a2b;
+    --panel-2: #0f1626;
+    --border: #1f2a44;
+    --text: #cfe3ff;
+    --muted: #7a8aa8;
+    --accent: #2dd4bf;
+    --accent-2: #34d399;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --bar: #1f3656;
+    --bar-active: #2dd4bf;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+  }
+  header .title { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: 0.5px; font-size: 20px; }
+  header .title .dot { width: 10px; height: 10px; background: var(--accent); border-radius: 50%; box-shadow: 0 0 12px var(--accent); }
+  header .title .yield { color: #cfe3ff; }
+  header .title .monitor { color: var(--accent); }
+  header .actions { display: flex; gap: 10px; }
+  .btn {
+    background: transparent; color: var(--text); border: 1px solid var(--border);
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  }
+  .btn-primary { border-color: var(--accent); color: var(--accent); }
+  .btn-primary:hover { background: rgba(45, 212, 191, 0.1); }
+  .btn-ghost { border-color: #5b3fbd; color: #b8a4ff; }
+
+  main { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; padding: 16px 24px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    min-height: 540px;
+    display: flex; flex-direction: column;
+  }
+  .panel h2 { margin: 0; font-size: 11px; letter-spacing: 1.5px; color: var(--muted); font-weight: 600; }
+  .panel .headline { font-size: 28px; font-weight: 800; margin-top: 6px; }
+  .panel .headline small { color: var(--muted); font-size: 12px; font-weight: 500; margin-left: 6px; }
+  .panel .chart-wrap { flex: 1; position: relative; margin-top: 12px; }
+
+  /* Pie panel */
+  .pie-wrap { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; }
+  .pie-center { position: absolute; text-align: center; pointer-events: none; }
+  .pie-center .label { color: var(--muted); font-size: 11px; letter-spacing: 1.5px; }
+  .pie-center .value { font-size: 28px; font-weight: 800; }
+  .pie-center .units { color: var(--muted); font-size: 11px; }
+  .legend { margin-top: 12px; }
+  .legend-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 4px; cursor: pointer; border-radius: 6px;
+  }
+  .legend-row:hover { background: rgba(255,255,255,0.03); }
+  .legend-row .left { display: flex; align-items: center; gap: 8px; }
+  .legend-row .swatch { width: 10px; height: 10px; border-radius: 50%; }
+  .legend-row .name { font-size: 13px; color: var(--text); }
+  .legend-row .count { font-size: 13px; color: var(--muted); }
+  .legend-row.active { background: rgba(45, 212, 191, 0.08); }
+
+  /* Gauge */
+  .gauge-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; }
+  .gauge { position: relative; width: 240px; height: 240px; }
+  .gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .gauge .center {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .gauge .pct { font-size: 40px; font-weight: 800; }
+  .gauge .label { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; }
+  .gauge .pn { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; width: 100%; }
+  .stat {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .stat .label { color: var(--muted); font-size: 10px; letter-spacing: 1.5px; }
+  .stat .value { font-size: 22px; font-weight: 800; margin-top: 2px; }
+
+  /* Modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(2, 8, 22, 0.7);
+    display: none; align-items: flex-start; justify-content: center; padding-top: 60px;
+    z-index: 1000;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    width: 100%; max-width: 440px;
+    padding: 22px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .modal h3 {
+    margin: 0; font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 12px;
+  }
+  .modal .icon {
+    width: 36px; height: 36px; border-radius: 8px; background: rgba(45, 212, 191, 0.15);
+    border: 1px solid rgba(45, 212, 191, 0.4); display: flex; align-items: center; justify-content: center;
+    color: var(--accent); font-size: 18px;
+  }
+  .modal .sub { color: var(--muted); font-size: 11px; letter-spacing: 1.5px; margin-top: 4px; margin-bottom: 18px; }
+  .field { margin-top: 14px; }
+  .field label { display: block; font-size: 11px; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 6px; }
+  .field input[type="text"], .field select, .field .ts {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 12px; border-radius: 8px; font-size: 14px; outline: none;
+  }
+  .field input[type="text"]:focus, .field select:focus { border-color: var(--accent); }
+  .field .ts { color: var(--accent); font-family: ui-monospace, monospace; }
+  .checkbox-row {
+    display: flex; align-items: center; gap: 10px; margin-top: 8px;
+  }
+  .checkbox-row input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .add-btn {
+    width: 100%; margin-top: 22px; padding: 12px; border-radius: 10px;
+    background: rgba(45, 212, 191, 0.06); border: 1px solid var(--accent);
+    color: var(--accent); font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  .add-btn:hover { background: rgba(45, 212, 191, 0.14); }
+  .close-x { float: right; background: transparent; color: var(--muted); border: none; cursor: pointer; font-size: 18px; }
+
+  /* Filter bar */
+  .filterbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 24px; border-bottom: 1px solid var(--border);
+    background: var(--panel-2); flex-wrap: wrap;
+  }
+  .filterbar .group { display: flex; align-items: center; gap: 6px; }
+  .filterbar label { color: var(--muted); font-size: 11px; letter-spacing: 1.5px; }
+  .filterbar input[type="date"] {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 10px; border-radius: 6px; font-size: 13px; outline: none;
+    color-scheme: dark;
+  }
+  .filterbar input[type="date"]:focus { border-color: var(--accent); }
+  .filterbar .btn { font-size: 12px; padding: 6px 12px; }
+  .filterbar .summary { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+  /* Script viewer */
+  .modal.wide { max-width: 880px; }
+  .script-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+  .script-toolbar .btn { font-size: 12px; padding: 6px 10px; }
+  .script-box {
+    background: #0a1322; border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px; max-height: 60vh; overflow: auto;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px;
+    line-height: 1.55; white-space: pre; color: #d6e4ff;
+  }
+
+  @media (max-width: 1100px) {
+    main { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="title">
+    <span class="dot"></span>
+    <span class="yield">YIELD</span>
+    <span class="monitor">MONITOR</span>
+  </div>
+  <div class="actions">
+    <button class="btn btn-ghost" id="viewScriptBtn">View Script</button>
+    <button class="btn btn-primary" id="manualTestBtn">▶ Manual Test</button>
+  </div>
+</header>
+
+<div class="filterbar">
+  <div class="group">
+    <label for="fromDate">FROM</label>
+    <input type="date" id="fromDate" />
+  </div>
+  <div class="group">
+    <label for="toDate">TO</label>
+    <input type="date" id="toDate" />
+  </div>
+  <button class="btn btn-primary" id="applyFilter">Apply</button>
+  <button class="btn" id="clearFilter">Clear</button>
+  <span class="summary" id="filterSummary">All time</span>
+</div>
+
+<main>
+  <!-- Panel A: Daily volume -->
+  <section class="panel" id="panelA">
+    <h2>DAILY TESTING VOLUME</h2>
+    <div class="headline" id="dailyTotal">0 <small>units / 7 days</small></div>
+    <div class="chart-wrap"><canvas id="dailyChart"></canvas></div>
+  </section>
+
+  <!-- Panel B: Pie -->
+  <section class="panel" id="panelB">
+    <h2>PART NUMBERS TESTED</h2>
+    <div class="pie-wrap">
+      <canvas id="pieChart"></canvas>
+      <div class="pie-center">
+        <div class="label">TOTAL</div>
+        <div class="value" id="pieTotal">0</div>
+        <div class="units">units</div>
+      </div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <!-- Panel C: Yield gauge -->
+  <section class="panel" id="panelC">
+    <h2>YIELD RATE</h2>
+    <div class="headline" id="yieldPart" style="font-size:18px;">—</div>
+    <div class="gauge-wrap">
+      <div class="gauge">
+        <svg viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="52" stroke="#1f2a44" stroke-width="10" fill="none"/>
+          <circle id="gaugeArc" cx="60" cy="60" r="52" stroke="#34d399" stroke-width="10" fill="none"
+                  stroke-linecap="round"
+                  stroke-dasharray="326.7" stroke-dashoffset="326.7"/>
+        </svg>
+        <div class="center">
+          <div class="pct" id="gaugePct">—</div>
+          <div class="label">YIELD</div>
+          <div class="pn" id="gaugePart">—</div>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="label">TESTED</div><div class="value" id="statTested">0</div></div>
+        <div class="stat"><div class="label">PASSED</div><div class="value" id="statPassed">0</div></div>
+        <div class="stat"><div class="label">FAILED</div><div class="value" id="statFailed">0</div></div>
+        <div class="stat"><div class="label">YIELD</div><div class="value" id="statYield">0%</div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Manual Test Modal -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" role="dialog" aria-labelledby="modalTitle">
+    <button class="close-x" id="closeModal" aria-label="Close">✕</button>
+    <h3 id="modalTitle"><span class="icon">▦</span> Manual Testing</h3>
+    <div class="sub">UNIT ENTRY FORM</div>
+
+    <div class="field">
+      <label for="serialNumber">SERIAL NUMBER</label>
+      <input type="text" id="serialNumber" placeholder="SN-..." autocomplete="off"/>
+    </div>
+
+    <div class="field">
+      <label for="partNumber">PART NUMBER</label>
+      <select id="partNumber">
+        <option value="001PN001">001PN001</option>
+        <option value="002PN002">002PN002</option>
+        <option value="003PN003">003PN003</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>TIMESTAMP</label>
+      <div class="ts" id="liveTimestamp">—</div>
+    </div>
+
+    <div class="field">
+      <label>STATUS</label>
+      <div class="checkbox-row">
+        <input type="checkbox" id="status"/>
+        <label for="status" style="margin:0;letter-spacing:0;color:var(--text);font-size:13px;">
+          Status (Unchecked = Failed / Checked = Pass)
+        </label>
+      </div>
+    </div>
+
+    <button class="add-btn" id="addBtn">+ Add</button>
+  </div>
+</div>
+
+<!-- Script Viewer Modal -->
+<div class="modal-backdrop" id="scriptBackdrop">
+  <div class="modal wide" role="dialog" aria-labelledby="scriptTitle">
+    <button class="close-x" id="closeScript" aria-label="Close">✕</button>
+    <h3 id="scriptTitle"><span class="icon">▶</span> Selenium Test Script</h3>
+    <div class="sub">test_yield.py</div>
+    <div class="script-toolbar">
+      <button class="btn" id="copyScript">Copy</button>
+      <a class="btn" href="/script" download="test_yield.py">Download</a>
+    </div>
+    <pre class="script-box" id="scriptBox">Loading…</pre>
+  </div>
+</div>
+
+<script>
+  const COLORS = ['#34d399', '#38bdf8', '#f59e0b'];
+  const PARTS = ['001PN001', '002PN002', '003PN003'];
+
+  let dailyChart, pieChart;
+  let selectedPart = '001PN001';
+  let lastStats = [];
+  let activeRange = { from: null, to: null };  // null = open-ended
+
+  function fmtDayLabel(iso) {
+    const d = new Date(iso + 'T00:00:00');
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const monthLetter = ['J','F','M','A','M','J','J','A','S','O','N','D'][d.getMonth()];
+    return monthLetter + day;
+  }
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function tickClock() {
+    const d = new Date();
+    document.getElementById('liveTimestamp').textContent =
+      `🕐 ${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+  setInterval(tickClock, 1000); tickClock();
+
+  // Modal handling
+  const backdrop = document.getElementById('modalBackdrop');
+  document.getElementById('manualTestBtn').addEventListener('click', () => {
+    backdrop.classList.add('open');
+    document.getElementById('serialNumber').focus();
+  });
+  document.getElementById('closeModal').addEventListener('click', () => backdrop.classList.remove('open'));
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
+
+  // Script viewer
+  const scriptBackdrop = document.getElementById('scriptBackdrop');
+  const scriptBox = document.getElementById('scriptBox');
+  let scriptLoaded = false;
+
+  document.getElementById('viewScriptBtn').addEventListener('click', async () => {
+    scriptBackdrop.classList.add('open');
+    if (!scriptLoaded) {
+      try {
+        const r = await fetch('/script');
+        scriptBox.textContent = r.ok ? await r.text() : `Failed to load script (${r.status})`;
+        scriptLoaded = r.ok;
+      } catch (e) {
+        scriptBox.textContent = 'Error loading script: ' + e.message;
+      }
+    }
+  });
+  document.getElementById('closeScript').addEventListener('click', () => scriptBackdrop.classList.remove('open'));
+  scriptBackdrop.addEventListener('click', (e) => { if (e.target === scriptBackdrop) scriptBackdrop.classList.remove('open'); });
+
+  document.getElementById('copyScript').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(scriptBox.textContent);
+      const btn = document.getElementById('copyScript');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => (btn.textContent = orig), 1200);
+    } catch {
+      alert('Copy failed — your browser may block clipboard access on http.');
+    }
+  });
+
+  document.getElementById('addBtn').addEventListener('click', async () => {
+    const sn = document.getElementById('serialNumber').value.trim();
+    const pn = document.getElementById('partNumber').value;
+    const status = document.getElementById('status').checked;
+    if (!sn) { alert('Serial number is required'); return; }
+    const res = await fetch('/tests', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({serial_number: sn, part_number: pn, status})
+    });
+    if (!res.ok) { alert('Failed to save'); return; }
+    document.getElementById('serialNumber').value = '';
+    document.getElementById('status').checked = false;
+    backdrop.classList.remove('open');
+    await refreshAll();
+  });
+
+  function rangeQuery() {
+    const p = new URLSearchParams();
+    if (activeRange.from) p.set('from', activeRange.from);
+    if (activeRange.to)   p.set('to',   activeRange.to);
+    const s = p.toString();
+    return s ? `?${s}` : '';
+  }
+  async function loadDaily() {
+    const r = await fetch('/daily' + rangeQuery());
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+  async function loadStats() {
+    const r = await fetch('/stats' + rangeQuery());
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+
+  function updateFilterSummary() {
+    const el = document.getElementById('filterSummary');
+    const { from, to } = activeRange;
+    if (!from && !to) el.textContent = 'All time';
+    else if (from && to) el.textContent = `${from} → ${to}`;
+    else if (from) el.textContent = `from ${from}`;
+    else el.textContent = `up to ${to}`;
+  }
+
+  document.getElementById('applyFilter').addEventListener('click', async () => {
+    const f = document.getElementById('fromDate').value || null;
+    const t = document.getElementById('toDate').value || null;
+    if (f && t && f > t) { alert('"From" must be on or before "To".'); return; }
+    activeRange = { from: f, to: t };
+    updateFilterSummary();
+    await refreshAll();
+  });
+
+  document.getElementById('clearFilter').addEventListener('click', async () => {
+    document.getElementById('fromDate').value = '';
+    document.getElementById('toDate').value = '';
+    activeRange = { from: null, to: null };
+    updateFilterSummary();
+    await refreshAll();
+  });
+
+  function renderDaily(rows) {
+    const labels = rows.map(r => fmtDayLabel(r.date));
+    const data = rows.map(r => r.count);
+    const total = data.reduce((a,b) => a+b, 0);
+    const span = rows.length;
+    document.getElementById('dailyTotal').innerHTML = `${total} <small>units / ${span} day${span === 1 ? '' : 's'}</small>`;
+    const colors = data.map((_, i) => i === data.length - 1 ? '#2dd4bf' : '#1f3656');
+    if (dailyChart) {
+      dailyChart.data.labels = labels;
+      dailyChart.data.datasets[0].data = data;
+      dailyChart.data.datasets[0].backgroundColor = colors;
+      dailyChart.update();
+      return;
+    }
+    const ctx = document.getElementById('dailyChart').getContext('2d');
+    dailyChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ data, backgroundColor: colors, borderRadius: 4 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: true } },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: '#7a8aa8' } },
+          y: { grid: { color: '#1f2a44' }, ticks: { color: '#7a8aa8' } }
+        }
+      }
+    });
+  }
+
+  function renderPie(stats) {
+    const data = stats.map(s => s.tested);
+    const total = data.reduce((a,b) => a+b, 0);
+    document.getElementById('pieTotal').textContent = total;
+    if (pieChart) {
+      pieChart.data.datasets[0].data = data;
+      pieChart.update();
+    } else {
+      const ctx = document.getElementById('pieChart').getContext('2d');
+      pieChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: PARTS,
+          datasets: [{ data, backgroundColor: COLORS, borderColor: '#121a2b', borderWidth: 3 }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '62%',
+          plugins: { legend: { display: false } },
+          onClick: (evt, els) => {
+            if (els && els.length) {
+              selectedPart = PARTS[els[0].index];
+              renderGauge();
+              renderLegend();
+            }
+          }
+        }
+      });
+    }
+    renderLegend();
+  }
+
+  function renderLegend() {
+    const el = document.getElementById('legend');
+    el.innerHTML = '';
+    lastStats.forEach((s, i) => {
+      const row = document.createElement('div');
+      row.className = 'legend-row' + (s.part_number === selectedPart ? ' active' : '');
+      row.dataset.part = s.part_number;
+      row.innerHTML = `
+        <div class="left">
+          <span class="swatch" style="background:${COLORS[i]}"></span>
+          <span class="name">${s.part_number}</span>
+        </div>
+        <span class="count">${s.tested}</span>
+      `;
+      row.addEventListener('click', () => {
+        selectedPart = s.part_number;
+        renderGauge();
+        renderLegend();
+      });
+      el.appendChild(row);
+    });
+  }
+
+  function gaugeColor(pct) {
+    if (pct >= 90) return '#34d399';
+    if (pct >= 80) return '#fbbf24';
+    return '#f87171';
+  }
+
+  function renderGauge() {
+    const s = lastStats.find(x => x.part_number === selectedPart) || {tested:0, passed:0, failed:0, yield_pct:0};
+    document.getElementById('yieldPart').textContent = s.part_number || selectedPart;
+    document.getElementById('gaugePart').textContent = s.part_number || selectedPart;
+    const pct = Number(s.yield_pct || 0);
+    document.getElementById('gaugePct').textContent = s.tested ? `${pct}%` : '—';
+    document.getElementById('statTested').textContent = s.tested;
+    document.getElementById('statPassed').textContent = s.passed;
+    document.getElementById('statFailed').textContent = s.failed;
+    document.getElementById('statYield').textContent = s.tested ? `${pct}%` : '0%';
+
+    const C = 2 * Math.PI * 52; // ≈ 326.7
+    const offset = C * (1 - (pct / 100));
+    const arc = document.getElementById('gaugeArc');
+    arc.setAttribute('stroke-dasharray', C.toFixed(2));
+    arc.setAttribute('stroke-dashoffset', offset.toFixed(2));
+    arc.setAttribute('stroke', gaugeColor(pct));
+  }
+
+  async function refreshAll() {
+    const [daily, stats] = await Promise.all([loadDaily(), loadStats()]);
+    lastStats = stats;
+    renderDaily(daily);
+    renderPie(stats);
+    renderGauge();
+  }
+
+  refreshAll();
+</script>
+</body>
+</html>
